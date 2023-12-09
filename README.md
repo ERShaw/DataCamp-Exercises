@@ -1379,8 +1379,266 @@ WHERE m.season = '2014/2015'
       OR (away.team_long_name = 'Manchester United' AND away.outcome = 'MU Loss'));
 ```
 
-
 ## PostgreSQL Summary Stats and Window Function
+
+### Introduction to window functions
+
+#### Numbering rows
+1. Number each row in the dataset.
+```
+SELECT
+  *, ROW_NUMBER()OVER() AS Row_N
+FROM Summer_Medals
+ORDER BY Row_N ASC;
+```
+#### Numbering Olympic games in ascending order
+1. Assign a number to each year in which Summer Olympic games were held.
+```
+SELECT Year, ROW_NUMBER() OVER() AS Row_N
+FROM (
+  SELECT DISTINCT Year
+  FROM Summer_Medals
+  ORDER BY Year ASC) AS Years
+ORDER BY Year ASC;
+```
+#### Numbering Olympic games in descending order
+1. Assign a number to each year in which Summer Olympic games were held so that rows with the most recent years have lower row numbers.
+```
+SELECT Year, ROW_NUMBER() OVER (ORDER BY Year DESC) AS Row_N
+FROM (
+  SELECT DISTINCT Year
+  FROM Summer_Medals
+) AS Years
+ORDER BY Year;
+```
+#### Numbering Olympic athletes by medals earned
+1. For each athlete, count the number of medals he or she has earned.
+```
+SELECT athlete,
+  COUNT(medal) AS Medals
+FROM Summer_Medals
+GROUP BY Athlete
+ORDER BY Medals DESC;
+```
+2. Having wrapped the previous query in the Athlete_Medals CTE, rank each athlete by the number of medals they've earned.
+```
+SELECT athlete,
+  ROW_NUMBER() OVER (ORDER BY Medals DESC) AS Row_N
+FROM Athlete_Medals
+ORDER BY Medals DESC;
+```
+#### Reigning weightlifting champions
+1. Return each year's gold medalists in the Men's 69KG weightlifting competition.
+```
+SELECT year, country AS champion
+FROM Summer_Medals
+WHERE
+  Discipline = 'Weightlifting' AND
+  Event = '69KG' AND
+  Gender = 'Men' AND
+  Medal = 'Gold';
+```
+2. Having wrapped the previous query in the Weightlifting_Gold CTE, get the previous year's champion for each year.
+```
+SELECT
+  Year, Champion, LAG(Champion) OVER
+    (ORDER BY year ASC) AS Last_Champion
+FROM Weightlifting_Gold
+ORDER BY Year ASC;
+```
+#### Reigning champions by gender
+1. Return the previous champions of each year's event by gender.
+```
+WITH Tennis_Gold AS (
+  SELECT DISTINCT
+    Gender, Year, Country
+  FROM Summer_Medals
+  WHERE
+    Year >= 2000 AND
+    Event = 'Javelin Throw' AND
+    Medal = 'Gold')
+SELECT
+  Gender, Year,
+  Country AS Champion,
+  LAG(Country) OVER (PARTITION BY Gender ORDER BY Year ASC) AS Last_Champion
+FROM Tennis_Gold
+ORDER BY Gender ASC, Year ASC;
+```
+#### Reigning champions by gender and event
+1. Return the previous champions of each year's events by gender and event.
+```
+WITH Athletics_Gold AS (
+  SELECT DISTINCT
+    Gender, Year, Event, Country
+  FROM Summer_Medals
+  WHERE
+    Year >= 2000 AND
+    Discipline = 'Athletics' AND
+    Event IN ('100M', '10000M') AND
+    Medal = 'Gold')
+
+SELECT
+  Gender, Year, Event,
+  Country AS Champion, LAG(Country) OVER (PARTITION BY Gender, Event ORDER BY Year ASC) AS Last_Champion
+FROM Athletics_Gold
+ORDER BY Event ASC, Gender ASC, Year ASC;
+```
+
+### Fetching, ranking, and paging
+#### Future gold medalist
+1. For each year, fetch the current gold medalist and the gold medalist 3 competitions ahead of the current row.
+```
+WITH Discus_Medalists AS (
+  SELECT DISTINCT
+    Year,
+    Athlete
+  FROM Summer_Medals
+  WHERE Medal = 'Gold'
+    AND Event = 'Discus Throw'
+    AND Gender = 'Women'
+    AND Year >= 2000)
+
+SELECT Year, athlete,
+  LEAD(athlete, 3) OVER (ORDER BY year ASC) AS Future_Champion
+FROM Discus_Medalists
+ORDER BY Year ASC;
+```
+#### First athlete by name
+1. Return all athletes and the first athlete ordered by alphabetical order.
+```
+WITH All_Male_Medalists AS (
+  SELECT DISTINCT
+    Athlete
+  FROM Summer_Medals
+  WHERE Medal = 'Gold'
+    AND Gender = 'Men')
+
+SELECT Athlete,
+  FIRST_VALUE(Athlete) OVER (
+    ORDER BY Athlete ASC
+  ) AS First_Athlete
+FROM All_Male_Medalists;
+```
+#### Last country by name
+1. Return the year and the city in which each Olympic games were held. Fetch the last city in which the Olympic games were held.
+```
+WITH Hosts AS (
+  SELECT DISTINCT Year, City
+    FROM Summer_Medals)
+
+SELECT
+  Year,
+  City, LAST_VALUE(City) OVER (
+   ORDER BY Year ASC
+   RANGE BETWEEN
+     UNBOUNDED PRECEDING AND
+     UNBOUNDED FOLLOWING
+  ) AS Last_City
+FROM Hosts
+ORDER BY Year ASC;
+```
+#### Ranking athletes by medals earned
+1. Rank each athlete by the number of medals they've earned -- the higher the count, the higher the rank -- with identical numbers in case of identical values.
+```
+WITH Athlete_Medals AS (
+  SELECT
+    Athlete,
+    COUNT(*) AS Medals
+  FROM Summer_Medals
+  GROUP BY Athlete)
+SELECT
+  Athlete,
+  Medals,
+  RANK() OVER (ORDER BY Medals DESC) AS Rank_N
+FROM Athlete_Medals
+ORDER BY Medals DESC;
+```
+#### Ranking athletes from multiple countries
+1. Rank each country's athletes by the count of medals they've earned -- the higher the count, the higher the rank -- without skipping numbers in case of identical values.
+```
+WITH Athlete_Medals AS (
+  SELECT
+    Country, Athlete, COUNT(*) AS Medals
+  FROM Summer_Medals
+  WHERE
+    Country IN ('JPN', 'KOR')
+    AND Year >= 2000
+  GROUP BY Country, Athlete
+  HAVING COUNT(*) > 1)
+SELECT
+  Country, Athlete,
+  DENSE_RANK() OVER (PARTITION BY Country ORDER BY Medals DESC) AS Rank_N
+FROM Athlete_Medals
+ORDER BY Country ASC, RANK_N ASC;
+```
+#### Paging events
+1.Split the distinct events into exactly 111 groups, ordered by event in alphabetical order.
+```
+WITH Events AS (
+  SELECT DISTINCT Event
+  FROM Summer_Medals)
+SELECT Event,
+  NTILE(111) OVER (ORDER BY Event ASC) AS Page
+FROM Events
+ORDER BY Event ASC;
+```
+#### Top, middle, and bottom thirds
+1. Split the athletes into top, middle, and bottom thirds based on their count of medals.
+```
+WITH Athlete_Medals AS (
+  SELECT Athlete, COUNT(*) AS Medals
+  FROM Summer_Medals
+  GROUP BY Athlete
+  HAVING COUNT(*) > 1)
+  
+SELECT Athlete, Medals,
+  NTILE(3) OVER(ORDER BY Medals DESC) AS Third
+FROM Athlete_Medals
+ORDER BY Medals DESC, Athlete ASC;
+```
+2. Return the average of each third.
+```
+WITH Athlete_Medals AS (
+  SELECT Athlete, COUNT(*) AS Medals
+  FROM Summer_Medals
+  GROUP BY Athlete
+  HAVING COUNT(*) > 1),
+  
+  Thirds AS (
+  SELECT
+    Athlete,
+    Medals,
+    NTILE(3) OVER (ORDER BY Medals DESC) AS Third
+  FROM Athlete_Medals)
+
+SELECT
+  Third,
+  AVG(Medals) AS Avg_Medals
+FROM Thirds
+GROUP BY Third
+ORDER BY Third ASC;
+```
+### Aggregate window functions and frames
+#### Running totals of athlete medals
+#### Maximum country medals by year
+#### Minimum country medals by year
+#### Moving maximum of Scandinavian athletes' medals
+#### Moving maximum of Chinese athletes' medals
+#### Moving average of Russian medals
+#### Moving total of countries' medals
+
 ## Functions for Manipulating Data in PostgreSQL
 
-## Skill Assessment: Data Analysis in SQL (PostgreSQL)
+
+
+
+
+
+
+
+
+
+
+
+
+
