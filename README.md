@@ -1628,6 +1628,118 @@ ORDER BY Third ASC;
 #### Moving total of countries' medals
 
 ## Functions for Manipulating Data in PostgreSQL
+### Overview of Common Data Types
+#### Getting information about your database
+1. Select all columns from the INFORMATION_SCHEMA.TABLES system database. Limit results that have a public table_schema. 
+
+```
+SELECT * 
+FROM INFORMATION_SCHEMA.TABLES
+WHERE table_schema = 'public';
+```
+2. Select all columns from the INFORMATION_SCHEMA.COLUMNS system database. Limit by table_name to actor.
+
+```
+SELECT * 
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE table_name = 'actor';
+```
+#### Determing data types
+1. Select the column name and data type from the INFORMATION_SCHEMA.COLUMNS system database. Limit results to only include the customer table.
+
+```
+SELECT column_name, data_type
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE table_name = 'customer';
+```
+#### Interval data types
+1. Select the rental date and return date from the rental table. Add an INTERVAL of 3 days to the rental_date to calculate the expected return date. 
+
+```
+SELECT rental_date, return_date, rental_date + INTERVAL '3 days' AS expected_return_date
+FROM rental;
+```
+
+#### Accessing data in an ARRAY
+1. Select the title and special features from the film table and compare the results between the two columns.
+```
+SELECT title, special_features
+FROM film;
+```
+2. Select all films that have a special feature Trailers by filtering on the first Index of the special_features ARRAY.
+```
+SELECT title, special_features 
+FROM film
+WHERE special_features [1] = 'Trailers';
+```
+3. Now let's select all films that have Deleted Scenes in the second Index of the special_features ARRAY.
+```
+SELECT title, special_features 
+FROM film
+WHERE special_features[2] = 'Deleted Scenes';
+
+```
+
+#### Searching an ARRAY with ANY
+1. Match 'Trailers' in any Index of the special_features ARRAY regardless of position.
+```
+SELECT title, special_features 
+FROM film 
+WHERE 'Trailers' = ANY (special_features);
+```
+
+#### Searching an ARRAY with @>
+1. Use the containa operator to match the text Deleted Scenes in the special_features column.
+```
+SELECT title, special_features 
+FROM film 
+WHERE special_features @> ARRAY['Deleted Scenes'];
+```
+### Working with DATE/TIME Functions and Operators
+#### Adding and subtracting dat and time values
+1. Subtract the rental_date from the return_date to calculate the number of days_rented.
+```
+SELECT f.title, f.rental_duration, r.return_date - r.rental_date AS days_rented
+FROM film AS f
+     INNER JOIN inventory AS i ON f.film_id = i.film_id
+     INNER JOIN rental AS r ON i.inventory_id = r.inventory_id
+ORDER BY f.title;
+```
+2. Now use the AGE() function to calculate the days_rented.
+```
+SELECT f.title, f.rental_duration, AGE(r.return_date, r.rental_date) AS days_rented
+FROM film AS f
+	INNER JOIN inventory AS i ON f.film_id = i.film_id
+	INNER JOIN rental AS r ON i.inventory_id = r.inventory_id
+ORDER BY f.title;
+```
+#### INTERVAL arithmetic
+1. Convert rental_duration by multiplying it with a 1 day INTERVAL. Subtract the rental_date from the return_date to calculate the number of days_rented. Exclude rentals with a NULL value for return_date.
+```
+SELECT
+    f.title,
+    INTERVAL '1' day * f.rental_duration, r.return_date - r.rental_date AS days_rented
+FROM film AS f
+    INNER JOIN inventory AS i ON f.film_id = i.film_id
+    INNER JOIN rental AS r ON i.inventory_id = r.inventory_id
+WHERE r.return_date IS NOT NULL
+ORDER BY f.title;
+```
+#### Calculating the expected return date
+1. Convert rental_duration by multiplying it with a 1-day INTERVAL. Add it to the rental date.
+```
+SELECT
+    f.title,
+	r.rental_date,
+    f.rental_duration, interval '1' day * f.rental_duration + r.rental_date AS expected_return_date, r.return_date
+FROM film AS f
+    INNER JOIN inventory AS i ON f.film_id = i.film_id
+    INNER JOIN rental AS r ON i.inventory_id = r.inventory_id
+ORDER BY f.title;
+```
+
+
+
 
 
 
